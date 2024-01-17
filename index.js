@@ -117,12 +117,12 @@ class Virus {
 }
 
 class Interferon {
-	constructor(xpos, ypos) {
+	constructor(xpos, ypos, timerange) {
 		this.xpos = xpos;
 		this.ypos = ypos;
 		this.xvel = (Math.random() - 0.5) * 2;
 		this.yvel = (Math.random() - 0.5) * 2;
-		this.born = new Date().getTime() + Math.random() * 2000;
+		this.born = new Date().getTime() + Math.random() * timerange;
 	}
 }
 
@@ -130,9 +130,9 @@ class Antigen {
 	constructor(xpos, ypos){
 		this.xpos = xpos;
 		this.ypos = ypos;
-		this.xvel = Math.random() - 0.5;
-		this.yvel = Math.random() - 0.5;
-		this.born = new Date().getTime() + Math.random() * 4000;
+		this.xvel = (Math.random() - 0.5) * 0.5;
+		this.yvel = (Math.random() - 0.5);
+		this.born = new Date().getTime() + Math.random() * 30000;
 		this.exists = true;
 	}
 }
@@ -308,7 +308,7 @@ class Room {
 				if (wall.sick){
 					if (new Date().getTime() - wall.interferonTime > 1000){
 						wall.interferonTime = new Date().getTime();
-						let newiferon = new Interferon(wall.xpos + 25, wall.ypos + 25);
+						let newiferon = new Interferon(wall.xpos + 25, wall.ypos + 25, 4000);
 						this.interferons.push(newiferon);
 					}
 				}
@@ -321,7 +321,7 @@ class Room {
 						for (let i = 0; i < 4; i++){
 							let newvirus = new Virus(wall.xpos + 25, wall.ypos + 25);
 							newvirus.xvel = (Math.random() - 0.5) * 10;
-							newvirus.yvel = (Math.random() - 0.3) * -10;
+							newvirus.yvel = (Math.random() - 0.1) * -10;
 							this.viruses.push(newvirus);
 							damages++;
 						}
@@ -364,7 +364,7 @@ class Room {
 			for (const antigen of this.antigens){
 				antigen.xpos += antigen.xvel;
 				antigen.ypos += antigen.yvel;
-				if (new Date().getTime() - antigen.born < 10000 && antigen.exists){
+				if (new Date().getTime() - antigen.born < 30000 && antigen.exists){
 					newantigens.push(antigen);
 				}
 			}
@@ -436,7 +436,7 @@ class Room {
 		if (nextScreen && Math.random() > 0.8){
 			const room = nextScreen.room;
 			const [newxpos, newypos] = nextScreen.pos;
-			room.interferons.push(new Interferon(newxpos, newypos));
+			room.interferons.push(new Interferon(newxpos, newypos, 5000));
 		}
 	}
 }
@@ -639,6 +639,17 @@ class Kcell extends MobileCell {//remember to code the AI further
 				this.xvel += Math.tanh(HeadX);
 				this.yvel += Math.tanh(HeadY);
 				
+				for (const cell of cells){
+					if (cell.type1 == "Kcell" && cell.goal == "Task"){
+						[dx, dy, dist] = Distances(this, cell);
+						if (dist != 0){
+							angle = Math.atan2(dy, dx);
+							this.xvel += Math.cos(angle) * 25/ dist;
+							this.yvel += Math.sin(angle) * 25/ dist;
+						}
+					}
+				}
+				
 				let minDist = 120;
 				for (const wall of walls){
 					if (wall.sick){
@@ -688,6 +699,11 @@ class Kcell extends MobileCell {//remember to code the AI further
 				break;
 			case "MemoryWait":
 				dx = this.xpos - 475; dy = this.ypos - 300;
+				dist = Math.sqrt(dx**2 + (1.5 * dy)**2);
+				if (dist > 200){
+					this.xvel -= Math.tanh(dx);
+					this.yvel -= Math.tanh(dy);
+				}
 				this.xvel += Math.tanh(dy * 0.01) * 0.3; //orbit the center
 				this.yvel -= Math.tanh(dx * 0.01) * 0.2; //orbit center
 				if (interferons.length == 0){
@@ -697,7 +713,7 @@ class Kcell extends MobileCell {//remember to code the AI further
 			case "Memory":
 				dx = this.xpos - 475; dy = this.ypos - 300;
 				dist = Math.sqrt(dx**2 + (1.5 * dy)**2);
-				if (dist > 300){
+				if (dist > 200){
 					this.xvel -= Math.tanh(dx);
 					this.yvel -= Math.tanh(dy);
 				}
@@ -735,12 +751,90 @@ class Kcell extends MobileCell {//remember to code the AI further
 				this.yvel += Math.sin(angle);
 				this.orientnuclei(angle, 3);
 				break;
-			
+			case "TissueResident":
+				{
+					let HeadX = 0; let HeadY = 0;
+					for (const iferon of interferons){
+						[dx, dy, dist] = Distances(this, iferon);
+						if (dist != 0){
+							dist = Math.max(this.radius, dist);
+							angle = Math.atan2(-dy, -dx);
+							HeadX += Math.cos(angle) * 99999 / dist;
+							HeadY += Math.sin(angle) * 99999 / dist;
+						}
+					}
+					this.xvel += Math.tanh(HeadX);
+					this.yvel += Math.tanh(HeadY);
+					let minDist = 120;
+					for (const wall of walls){
+						if (wall.sick){
+							dx = this.xpos - wall.xpos - 25; dy = this.ypos - wall.ypos - 25;
+							dist = Math.sqrt(dx**2 + dy**2);
+							
+							if (dist < minDist){
+								minDist = dist;
+								this.interest = wall;
+								this.goal = "MemoryInspect";
+								this.timer = new Date().getTime();
+							}
+						}
+					}
+				}
+				
+				break;
+			case "MemoryInspect":
+				if (new Date().getTime() - this.timer > 3000 || !(this.interest.sta == "alive")){
+					this.goal = "TissueResident";
+					this.interest = null;
+					break;
+				}
+				dx = this.xpos - this.interest.xpos - 25; dy = this.ypos - this.interest.ypos - 25;
+				dist = Math.sqrt(dx**2 + dy**2);
+				angle = Math.atan2(-dy, -dx);
+				this.orientnuclei(angle, 3);
+				if (dist < this.radius + 32){
+					this.goal = "MemoryTerminate";
+					this.timer = new Date().getTime();
+				} else {
+					this.xvel += Math.cos(angle);
+					this.yvel += Math.sin(angle);
+				}
+				break;
+			case "MemoryTerminate":
+				dx = this.xpos - this.interest.xpos - 25; dy = this.ypos - this.interest.ypos - 25;
+				dist = Math.sqrt(dx**2 + dy**2);
+				angle = Math.atan2(-dy, -dx);
+				this.xvel += Math.cos(angle);
+				this.yvel += Math.sin(angle);
+				this.orientnuclei(angle, 3);
+				if (new Date().getTime() - this.timer > 1500){
+					this.interest.sta = "Apoptosis";
+					this.interest = null;
+					this.goal = "TissueResident";
+				}
+				break;
 			case "Prepare To Die":
 				if (interferons.length > 0){
 					this.goal = "Task";
 				} else if (new Date().getTime() - this.timer > 3000){
-					this.goal = "Die";
+					if (Math.random() < 0.5){
+						this.goal = "TissueResident";
+						this.memory = true;
+						this.cancross = false;
+					} else {
+						this.goal = "Die";
+					}
+				} else {//spread out
+					for (const cell of cells){
+						if (cell.type1 == "Kcell"){
+							[dx, dy, dist] = Distances(this, cell);
+							if (dist != 0){
+								angle = Math.atan2(dy, dx);
+								this.xvel += Math.cos(angle) * 50/ dist;
+								this.yvel += Math.sin(angle) * 50/ dist;
+							}
+						}
+					}
 				}
 				break;
 			
@@ -845,8 +939,8 @@ class DentriticCell extends MobileCell {
 						HeadY += Math.sin(angle) * 99999 / dist;
 					}
 				}
-				this.xvel += Math.tanh(HeadX) * 0.05;
-				this.yvel += Math.tanh(HeadY) * 0.05;
+				this.xvel += Math.tanh(HeadX) * 0.1;
+				this.yvel += Math.tanh(HeadY) * 0.1;
 				
 				break;
 			case "Awake": //spotting and picking up a virus 
@@ -879,7 +973,7 @@ class DentriticCell extends MobileCell {
 					this.xvel = -1;
 					this.cancross = true;
 					for (let i = 0; i < 4; i++){
-						interferons.push(new Interferon(this.xpos, this.ypos));
+						interferons.push(new Interferon(this.xpos, this.ypos, 5000));
 					}
 				}
 				break;
@@ -902,7 +996,7 @@ class DentriticCell extends MobileCell {
 				for (const cell of cells){
 					if (cell.type1 == "Kcell" && cell.color == "#FF0000"){
 						[dx, dy, dist] = Distances(this, cell);
-						if (dist < 200){
+						if (dist < 100){
 							this.interest = cell;
 							this.goal = "ChaseKcell";
 							this.timer = new Date().getTime();
@@ -1007,8 +1101,8 @@ class Macrophage extends MobileCell {
 						HeadY += Math.sin(angle) * 99999 / dist;
 					}
 				}
-				this.xvel += Math.tanh(HeadX) * 0.05;
-				this.yvel += Math.tanh(HeadY) * 0.05;
+				this.xvel += Math.tanh(HeadX) * 0.1;
+				this.yvel += Math.tanh(HeadY) * 0.1;
 				let minDist = 150
 				for (const virus of viruses){
 					const [dx, dy, dist] = Distances(this, virus);
@@ -1017,6 +1111,20 @@ class Macrophage extends MobileCell {
 						this.goal = "Targeting";
 						this.timer = newtime;
 						minDist = dist;
+						for (let i = 0; i < 5; i++){
+							interferons.push(new Interferon(this.xpos, this.ypos, 4000));
+						}
+					}
+				}
+				for (const cell in cells){
+					if (cell.type1 == "Kcell"){
+						const [dx, dy, dist] = Distances(this, cell);
+						if (dist < this.radius + cell.radius + 5){
+							const angle = Math.atan2(dy, dx);
+							Math.xvel += Math.cos(angle);
+							Math.yvel += Math.sin(angle);
+							this.goal = "Stun";
+						}
 					}
 				}
 				break;
@@ -1052,6 +1160,11 @@ class Macrophage extends MobileCell {
 					this.ndir[1] /= 2;
 				}
 				break;
+			case "Stun":
+				if (new Date().getTime() - this.timer > 2000){
+					this.goal = "Wandering";
+				}
+				break;
 		}
 	}
 	draw(){
@@ -1074,24 +1187,6 @@ class Macrophage extends MobileCell {
 		const [lookAngle, lookMag] = this.ndir;
 		ctx.fillStyle = "#FF0101";
 		FillPolygon(x + Math.cos(lookAngle) * lookMag, y + Math.sin(lookAngle) * lookMag, 3, r * 0.5, this.nrotate);
-		ctx.restore();
-	}
-}
-
-class Popup {
-	constructor(){
-		this.txt = "";
-		this.xpos = 0;
-		this.ypos = 0;
-		this.height = 0;
-		this.width = 0;
-		this.on = false;
-	}
-	draw(){
-		ctx.save();
-		
-		
-		
 		ctx.restore();
 	}
 }
@@ -1186,7 +1281,7 @@ lungs.wallOuterColor = "#701111";
 
 //lymph node 2 connections
 rnode.connections = {
-	left: {room: blood, pos: [950, 350]},
+	left: {room: blood, pos: [950, 300]},
 	right: null,
 	up: {room: blood, pos: [475, 600]},
 	down: null
@@ -1243,8 +1338,13 @@ canvas.addEventListener("keydown", function(e) {
 				focusroom.antigens.push(new Antigen(mouse.x, mouse.y));
 				break;
 			case " ":
+				camindex = 0;
 				for (let i = 0; i < 30; i++){
 					blood.antigens.push(new Antigen(475, 300));
+					lungs.antigens.push(new Antigen(25, 300));
+					lungs.antigens.push(new Antigen(925, 300));
+					lungs.interferons.push(new Interferon(25, 300, 30000));
+					lungs.interferons.push(new Interferon(925, 300, 30000));
 				}
 			/* 			case "m":
 							let newcell = new Kcell(475, 300);
@@ -1266,13 +1366,10 @@ lungs.cells.push(new DentriticCell(475, 525));
 lungs.cells.push(new DentriticCell(20, 200));
 lungs.cells.push(new DentriticCell(930, 200));
 lungs.cells.push(new Macrophage(475, 200));
+lungs.cells.push(new Macrophage(0, 100));
 
-for (let i = 0; i < 2; i++) {
-	let newcell = new Macrophage(475, 200);
-	newcell.xpos += 40 * (Math.random() - 0.5);
-	newcell.ypos += 40 * (Math.random() - 0.5);
-	blood.cells.push(newcell);
-}
+
+blood.cells.push(new Macrophage(475, 200));
 
 for (let i = 0; i < 20; i++) {
 	let newcell = new Kcell(475, 300);
@@ -1323,10 +1420,14 @@ function mainloop() {
 	ctx.fillStyle = "#FFFFFF";
 	ctx.fillText("[Q]", 150, 580);
 	ctx.fillText("[E]", 800, 580);
-	ctx.textAlign = "right";
-	if (damages > 50){
-		fillStyle = "#FF0000";
+	
+	ctx.textAlign = "left";
+	ctx.fillText("Press [Space] to Vaccinate or [V] to plot Virus. Experiment!", 5, 30);
+	
+	if (damages > 100){
+		ctx.fillStyle = "#FF0000";
 	}
+	ctx.textAlign = "right";
 	ctx.fillText("Casualties: "+damages.toString(), 940, 30);
 	
 	ctx.restore();
